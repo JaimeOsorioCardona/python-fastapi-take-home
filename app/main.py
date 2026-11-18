@@ -8,6 +8,7 @@ from psycopg.rows import DictRow
 from pydantic import BaseModel
 
 from app.db import create_pool, get_conn
+from app.routers.records import router as records_router
 
 
 @asynccontextmanager
@@ -45,4 +46,4 @@ def list_notes(conn: Conn) -> list[Note]:
     return [Note.model_validate(row) for row in rows]
 
 
-# TODO (Part 2): add the endpoint(s) that serve the coffee health records.
+app.include_router(records_router)
