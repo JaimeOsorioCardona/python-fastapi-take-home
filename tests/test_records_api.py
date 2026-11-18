@@ -131,3 +131,31 @@ def test_summary_endpoint(client: TestClient) -> None:
 def test_summary_invalid_group_by_returns_422(client: TestClient) -> None:
     response = client.get("/records/summary?group_by=invalid_column")
     assert response.status_code == 422
+
+
+def test_list_records_cursor_pagination(client: TestClient) -> None:
+    # 1. Fetch first page
+    resp1 = client.get("/records?page_size=5")
+    assert resp1.status_code == 200
+    data1 = resp1.json()
+    assert len(data1["items"]) == 5
+    assert data1["next_cursor"] is not None
+
+    cursor = data1["next_cursor"]
+    ids_page1 = [item["id"] for item in data1["items"]]
+
+    # 2. Fetch second page using cursor
+    resp2 = client.get(f"/records?cursor={cursor}&page_size=5")
+    assert resp2.status_code == 200
+    data2 = resp2.json()
+    assert len(data2["items"]) == 5
+    ids_page2 = [item["id"] for item in data2["items"]]
+
+    # Verify no overlaps and monotonic ordering
+    assert set(ids_page1).isdisjoint(set(ids_page2))
+    assert min(ids_page2) > max(ids_page1)
+
+
+def test_list_records_invalid_cursor_returns_422(client: TestClient) -> None:
+    resp = client.get("/records?cursor=invalid_base64_***")
+    assert resp.status_code == 422

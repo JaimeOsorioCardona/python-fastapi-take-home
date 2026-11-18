@@ -1,0 +1,249 @@
+{
+  "info": {
+    "_postman_id": "coffee-health-api-medallo-collection",
+    "name": "Coffee Health API (Medallo Dev)",
+    "description": "Complete Postman collection for testing the Coffee Health FastAPI service, including health checks, filtered queries, dual pagination (offset & keyset cursor), analytical summaries, and 422 validation test cases.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "System Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          }
+        },
+        {
+          "name": "Sample Notes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/notes",
+              "host": ["{{base_url}}"],
+              "path": ["notes"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Records - Listing & Pagination",
+      "item": [
+        {
+          "name": "List Records (Default Offset Pagination)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/records?page=1&page_size=20",
+              "host": ["{{base_url}}"],
+              "path": ["records"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "page_size", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Records (Keyset Cursor Pagination)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/records?page_size=10&cursor=MTA=",
+              "host": ["{{base_url}}"],
+              "path": ["records"],
+              "query": [
+                { "key": "page_size", "value": "10" },
+                { "key": "cursor", "value": "MTA=" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Single Record by ID (200 OK)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/records/1",
+              "host": ["{{base_url}}"],
+              "path": ["records", "1"]
+            }
+          }
+        },
+        {
+          "name": "Get Single Record by ID (404 Not Found)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/records/9999999",
+              "host": ["{{base_url}}"],
+              "path": ["records", "9999999"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Records - Filtering",
+      "item": [
+        {
+          "name": "Filter by Country (Exact & Multi-select)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/records?country=Germany&country=Spain",
+              "host": ["{{base_url}}"],
+              "path": ["records"],
+              "query": [
+                { "key": "country", "value": "Germany" },
+                { "key": "country", "value": "Spain" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Filter by Demographics & Sleep",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/records?gender=Female&sleep_quality=Good&smoking=false",
+              "host": ["{{base_url}}"],
+              "path": ["records"],
+              "query": [
+                { "key": "gender", "value": "Female" },
+                { "key": "sleep_quality", "value": "Good" },
+                { "key": "smoking", "value": "false" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Numeric Range Filter (Age & Coffee Intake)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/records?min_age=25&max_age=40&min_coffee_intake=2.0",
+              "host": ["{{base_url}}"],
+              "path": ["records"],
+              "query": [
+                { "key": "min_age", "value": "25" },
+                { "key": "max_age", "value": "40" },
+                { "key": "min_coffee_intake", "value": "2.0" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Records - Analytical Summary",
+      "item": [
+        {
+          "name": "Summary Grouped by Country",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/records/summary?group_by=country",
+              "host": ["{{base_url}}"],
+              "path": ["records", "summary"],
+              "query": [
+                { "key": "group_by", "value": "country" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Summary Grouped by Sleep Quality with Country Filter",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/records/summary?group_by=sleep_quality&country=Germany",
+              "host": ["{{base_url}}"],
+              "path": ["records", "summary"],
+              "query": [
+                { "key": "group_by", "value": "sleep_quality" },
+                { "key": "country", "value": "Germany" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Validation Error Tests (422)",
+      "item": [
+        {
+          "name": "Invalid Range: min_age > max_age (422)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/records?min_age=50&max_age=20",
+              "host": ["{{base_url}}"],
+              "path": ["records"],
+              "query": [
+                { "key": "min_age", "value": "50" },
+                { "key": "max_age", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Invalid Group By in Summary (422)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/records/summary?group_by=non_existent_column",
+              "host": ["{{base_url}}"],
+              "path": ["records", "summary"],
+              "query": [
+                { "key": "group_by", "value": "non_existent_column" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Invalid Keyset Cursor (422)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/records?cursor=invalid_base64_string",
+              "host": ["{{base_url}}"],
+              "path": ["records"],
+              "query": [
+                { "key": "cursor", "value": "invalid_base64_string" }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

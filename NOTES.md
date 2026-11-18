@@ -30,11 +30,14 @@ The schema is defined in [`db/init/002_coffee_records.sql`](file:///db/init/002_
 | `alcohol_consumption` | `BOOLEAN` | `NOT NULL` | Native 1-byte boolean flag. |
 | `created_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT NOW()` | Record ingestion audit timestamp. |
 
-### Indexing Strategy
+### Indexing & PostgreSQL Statistics Strategy
 - `idx_coffee_country` on `(country)`: Accelerates country exact-match and multi-select filters.
 - `idx_coffee_gender` on `(gender)`: Speeds up demographic grouping.
 - `idx_coffee_stress_sleep` on `(stress_level, sleep_quality)`: Composite index targeting high-frequency correlated health filters.
 - `idx_coffee_age` on `(age)` and `idx_coffee_intake` on `(coffee_intake)`: B-tree indexes supporting range scans (`min_age`, `max_age`, `min_coffee_intake`, `max_coffee_intake`).
+- `idx_coffee_sleep_hours` on `(sleep_hours)` and `idx_coffee_bmi` on `(bmi)`: B-tree indexes for range scans.
+- **Multivariate Extended Statistics (`CREATE STATISTICS (mcv)`):**
+  PostgreSQL query planner assumes attribute independence by default. In health datasets, stress level and sleep quality are strongly correlated. Creating `coffee_records_categories_stats (mcv)` on `(country, gender, stress_level, sleep_quality)` teaches the optimizer the joint multi-column distribution, preventing costly sequential full-table scans on selective combination filters.
 
 ---
 
@@ -92,7 +95,7 @@ The pipeline is implemented across [`scripts/data_cleaner.py`](file:///scripts/d
 
 ---
 
-## 3. Filtering & Pagination Strategy
+## 3. Filtering & Dual Pagination Strategy
 
 Implemented in [`app/routers/records.py`](file:///app/routers/records.py) and [`app/repositories/coffee_repository.py`](file:///app/repositories/coffee_repository.py).
 
@@ -102,12 +105,15 @@ Implemented in [`app/routers/records.py`](file:///app/routers/records.py) and [`
    - Supports numeric range filters (`min_age`, `max_age`, `min_coffee_intake`, `max_coffee_intake`, `min_bmi`, `max_bmi`, `min_sleep_hours`, `max_sleep_hours`).
    - Supports boolean flags (`smoking`, `alcohol_consumption`).
    - **Range Validation:** A Pydantic `@model_validator` asserts `min_* <= max_*`. Returns HTTP `422 Unprocessable Content` if violated.
-   - **Pagination:** Offset/limit with metadata (`total`, `page`, `page_size`, `total_pages`, `has_next`, `has_previous`). Maximum page size capped at 100.
+   - **Dual Pagination Architecture:**
+     - **Offset Mode (`page`, `page_size`):** Returns human-friendly page index, `total_records`, and `total_pages`.
+     - **Keyset Cursor Mode (`cursor`, `page_size`):** Uses an opaque URL-safe base64 cursor (`id`-based) operating in $\mathcal{O}(1)$ constant time at massive scale.
 2. `GET /records/summary`:
    - Analytical endpoint providing aggregated health metrics (`avg_sleep_hours`, `avg_caffeine_mg`, `avg_bmi`, `avg_coffee_intake`, and `record_count`) grouped by `country`, `sleep_quality`, `stress_level`, `occupation`, or `gender`.
    - Aggregations are calculated natively in PostgreSQL using indexed grouping for high performance.
 3. `GET /records/{record_id}`:
    - Fetches individual participant record by primary key; returns HTTP `404` if not found.
+4. **Postman Collection:** A complete collection is provided in [`coffee-health.postman_collection.json`](file:///coffee-health.postman_collection.json).
 
 ---
 
@@ -124,21 +130,21 @@ Implemented in [`app/routers/records.py`](file:///app/routers/records.py) and [`
   1. Drop secondary indexes prior to loading.
   2. Execute streaming `COPY`.
   3. Recreate indexes in parallel with `CREATE INDEX CONCURRENTLY`.
-- **Query Indexes:** In production, composite indexes should match specific query patterns (e.g. `(country, stress_level, sleep_quality)`). Partial indexes (e.g. `WHERE smoking IS TRUE`) can further reduce index size by indexing only relevant subsets.
+- **Query Indexes:** Composite indexes match specific query patterns (e.g. `(country, stress_level, sleep_quality)`). Partial indexes (e.g. `WHERE smoking IS TRUE`) can further reduce index size by indexing only relevant subsets.
 
 ### 3. Deep Pagination (Page 1 vs. Page 50,000)
 - **The Problem with `OFFSET / LIMIT`:** On page 50,000 with a page size of 20, PostgreSQL must scan 1,000,000 index entries and discard 999,980 rows before returning 20 records ($\mathcal{O}(N)$ complexity).
-- **Production Solution — Keyset (Cursor-based) Pagination:**
-  - Instead of `OFFSET 1000000 LIMIT 20`, queries utilize an indexed tuple comparison:
+- **Keyset (Cursor-based) Pagination Solution:**
+  - Our API natively supports Keyset pagination via the `cursor` query parameter:
     ```sql
     SELECT * FROM coffee_records
-    WHERE (created_at, id) < (%(cursor_timestamp)s, %(cursor_id)s)
-    ORDER BY created_at DESC, id DESC
-    LIMIT 20;
+    WHERE id > %(cursor_id)s
+    ORDER BY id ASC
+    LIMIT %(page_size)s;
     ```
   - Keyset pagination runs in constant time $\mathcal{O}(1)$ via B-tree index lookups regardless of whether browsing page 1 or page 50,000.
 
 ### 4. Database Connection Pool Under Concurrent Load
-- **Pool Management:** The API uses `psycopg_pool.ConnectionPool` with bounded connections (`min_size=1`, `max_size=10`).
-- **Connection Borrowing:** FastAPI's `Depends(get_conn)` borrows a connection strictly during request execution and returns it to the pool upon completion via context managers.
-- **Handling High Concurrency:** Under heavy load, increasing application processes can exhaust PostgreSQL's max connections. The production architecture introduces an intermediate connection pooler (**PgBouncer**) in transaction pooling mode (`pool_mode = transaction`). This multiplexes thousands of incoming HTTP requests across a lean pool of 20–50 actual PostgreSQL backend processes with minimal RAM and context-switching overhead.
+- **Pool Management & Timeouts:** The API uses `psycopg_pool.ConnectionPool` with bounded connections (`min_size=2`, `max_size=10`), configured with `options="-c statement_timeout=5000"` (cancels runaway queries after 5 seconds) and `timeout=5.0`.
+- **Fail Fast Resilience (503):** When the pool is saturated under sudden traffic bursts, `get_conn` intercepts `PoolTimeout` and immediately returns `HTTP 503 Service Unavailable` with a `Retry-After: 1` header, avoiding 30-second client timeouts and cascading gateway failures.
+- **Handling Extreme Concurrency:** Past PostgreSQL's `max_connections`, the recommended architecture introduces **PgBouncer** in transaction pooling mode (`pool_mode = transaction`), multiplexing thousands of incoming HTTP requests across a lean pool of 20–50 actual PostgreSQL backend processes.

@@ -35,12 +35,25 @@ class CoffeeRecordResponse(BaseModel):
 
 class PaginatedResponse[T](BaseModel):
     items: list[T]
-    total: int = Field(description="Total number of records matching the filter criteria")
-    page: int = Field(description="Current page index (1-based)")
+    total: int | None = Field(
+        default=None,
+        description="Total number of records matching filter criteria (omitted in cursor mode)",
+    )
+    page: int | None = Field(
+        default=None,
+        description="Current page index (1-based, omitted in cursor mode)",
+    )
     page_size: int = Field(description="Number of records returned per page")
-    total_pages: int = Field(description="Total number of available pages")
+    total_pages: int | None = Field(
+        default=None,
+        description="Total number of available pages (omitted in cursor mode)",
+    )
     has_next: bool = Field(description="Whether there is a subsequent page")
     has_previous: bool = Field(description="Whether there is a preceding page")
+    next_cursor: str | None = Field(
+        default=None,
+        description="Opaque base64 cursor for keyset pagination",
+    )
 
 
 class SummaryItem(BaseModel):

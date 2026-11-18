@@ -28,3 +28,11 @@ CREATE INDEX IF NOT EXISTS idx_coffee_stress_sleep ON public.coffee_records (str
 CREATE INDEX IF NOT EXISTS idx_coffee_age ON public.coffee_records (age);
 CREATE INDEX IF NOT EXISTS idx_coffee_intake ON public.coffee_records (coffee_intake);
 CREATE INDEX IF NOT EXISTS idx_coffee_bmi ON public.coffee_records (bmi);
+CREATE INDEX IF NOT EXISTS idx_coffee_sleep_hours ON public.coffee_records (sleep_hours);
+
+-- Extended statistics for correlated categorical attributes:
+-- PostgreSQL by default assumes column independence. Sleep quality and stress levels
+-- are strongly correlated; multivariate statistics (MCV) prevent plan misestimations.
+CREATE STATISTICS IF NOT EXISTS coffee_records_categories_stats (mcv)
+    ON country, gender, stress_level, sleep_quality
+    FROM public.coffee_records;

@@ -1,5 +1,6 @@
 """Repository for coffee records using raw psycopg3 parameterized queries."""
 
+import base64
 from typing import Any
 
 from psycopg import Connection, sql
@@ -15,6 +16,23 @@ ALLOWED_SUMMARY_GROUPS = {
     "occupation",
     "health_issues",
 }
+
+
+def encode_cursor(record_id: int) -> str:
+    """Encode an integer record ID into a URL-safe base64 cursor."""
+    return base64.urlsafe_b64encode(str(record_id).encode("utf-8")).decode("utf-8")
+
+
+def decode_cursor(cursor_str: str) -> int:
+    """Decode an opaque base64 cursor into the integer record ID."""
+    try:
+        raw_bytes = base64.urlsafe_b64decode(cursor_str.encode("utf-8"))
+        record_id = int(raw_bytes.decode("utf-8"))
+        if record_id <= 0:
+            raise ValueError("Cursor must encode a positive integer ID")
+        return record_id
+    except Exception as exc:
+        raise ValueError(f"Invalid cursor format: '{cursor_str}'") from exc
 
 
 class CoffeeRecordRepository:
@@ -113,6 +131,7 @@ class CoffeeRecordRepository:
         page: int,
         page_size: int,
     ) -> tuple[list[dict[str, Any]], int]:
+        """Offset/limit pagination with exact total count."""
         where_sql, params = self._build_where_clause(filters)
 
         # 1. Count query
@@ -148,6 +167,53 @@ class CoffeeRecordRepository:
             cur.execute(records_query, params_with_paging)
             rows = cur.fetchall()
             return [dict(r) for r in rows], total
+
+    def find_records_cursor(
+        self,
+        filters: CoffeeFilterParams,
+        cursor_id: int | None,
+        limit: int,
+    ) -> tuple[list[dict[str, Any]], str | None, bool]:
+        """Keyset / cursor-based pagination running in constant O(1) time."""
+        where_sql, params = self._build_where_clause(filters)
+
+        if cursor_id is not None:
+            cursor_condition = sql.SQL("id > %(cursor_id)s")
+            params = dict(params, cursor_id=cursor_id)
+            if where_sql.as_string(self.conn):
+                where_sql = where_sql + sql.SQL(" AND ") + cursor_condition
+            else:
+                where_sql = sql.SQL(" WHERE ") + cursor_condition
+
+        # Fetch limit + 1 to check if another page exists without a COUNT(*) query
+        fetch_limit = limit + 1
+        params = dict(params, fetch_limit=fetch_limit)
+
+        records_query = (
+            sql.SQL(
+                """
+                SELECT
+                    id, age, gender, country, coffee_intake, caffeine_mg,
+                    sleep_hours, sleep_quality, bmi, heart_rate, stress_level,
+                    physical_activity_hours, health_issues, occupation,
+                    smoking, alcohol_consumption, created_at
+                FROM public.coffee_records
+                """
+            )
+            + where_sql
+            + sql.SQL(" ORDER BY id ASC LIMIT %(fetch_limit)s;")
+        )
+
+        with self.conn.cursor() as cur:
+            cur.execute(records_query, params)
+            rows = cur.fetchall()
+            raw_list = [dict(r) for r in rows]
+
+            has_next = len(raw_list) > limit
+            items = raw_list[:limit]
+            next_cursor = encode_cursor(items[-1]["id"]) if (has_next and items) else None
+
+            return items, next_cursor, has_next
 
     def get_summary(
         self,
